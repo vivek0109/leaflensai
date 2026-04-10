@@ -1,0 +1,85 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users
+    // Document ID: userId
+    // Fields:
+    //   - uid: string (required)
+    //   - email: string (required)
+    //   - displayName: string
+    //   - photoURL: string
+    //   - createdAt: timestamp
+    //
+    // Collection: diagnoses
+    // Document ID: auto-generated
+    // Fields:
+    //   - userId: string (required)
+    //   - species: string (required)
+    //   - scientificName: string
+    //   - description: string
+    //   - disease: string (required)
+    //   - confidence: string
+    //   - symptoms: list
+    //   - causes: list
+    //   - treatment: string
+    //   - prevention: list
+    //   - severity: string (Low, Moderate, High, Critical)
+    //   - image: string (required, base64)
+    //   - timestamp: timestamp (required)
+    //   - feedback: map (helpful: bool, rating: number)
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    function isDocOwner() {
+      return isAuthenticated() && request.auth.uid == resource.data.userId;
+    }
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'email']) &&
+             data.uid == request.auth.uid &&
+             data.email is string && data.email.size() > 0;
+    }
+
+    function isValidDiagnosis(data) {
+      return data.keys().hasAll(['userId', 'species', 'disease', 'image', 'timestamp']) &&
+             data.userId == request.auth.uid &&
+             data.species is string && data.species.size() < 200 &&
+             data.disease is string && data.disease.size() < 200 &&
+             data.image is string && data.image.size() < 2000000; // Limit base64 size
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      allow read: if isOwner(userId);
+      allow create: if isOwner(userId) && isValidUser(request.resource.data);
+      allow update: if isOwner(userId) && isValidUser(request.resource.data);
+    }
+
+    match /diagnoses/{diagnosisId} {
+      allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid);
+      allow create: if isAuthenticated() && isValidDiagnosis(request.resource.data);
+      allow update: if isAuthenticated() && isDocOwner() && isValidDiagnosis(request.resource.data);
+      allow delete: if isAuthenticated() && isDocOwner();
+    }
+  }
+}
